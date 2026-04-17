@@ -5,19 +5,15 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, Tuple
 from bson import ObjectId
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from db.connection import MongoDBClient
-from mcp_servers.listings_mdb.utilities.parser import ParserListings
+from tools.listings.utils.parser import ParserListings
+from tools.alerts.server import check_and_notify
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("listings_mcp")
 
-mcp = FastMCP(
-    "listings_mongodb",
-    host="localhost",
-    port=9001,
-    stateless_http=True
-)
+listings_server = FastMCP("property_listings")
 
 # ---------- DB Setup ----------
 try:
@@ -87,8 +83,7 @@ def validate_listing(d: Dict[str, Any]) -> Tuple[bool, list]:
 # TOOL 1 – Parse
 # ---------------------------------------------------------------
 
-@mcp.tool()
-@mcp.tool()
+@listings_server.tool()
 def parse_and_confirm_listing(raw_listing: str) -> str:
     """
     Parse listing text → return normalized JSON + summary.
@@ -133,7 +128,7 @@ Parsed JSON:
 # ---------------------------------------------------------------
 # TOOL 2 – Update fields
 # ---------------------------------------------------------------
-@mcp.tool()
+@listings_server.tool()
 def update_listing_fields(parsed_listing_json: str, changes_description: str) -> str:
     """
     Update the listing data based on natural language edit requests.
@@ -236,7 +231,7 @@ Updated JSON:
 # ---------------------------------------------------------------
 # TOOL 3 – Save
 # ---------------------------------------------------------------
-@mcp.tool()
+@listings_server.tool()
 def save_listing(parsed_listing_json: str) -> str:
     """
     Saves the final listing into MongoDB.
@@ -256,18 +251,22 @@ def save_listing(parsed_listing_json: str) -> str:
     except Exception as e:
         return f"❌ Error saving to DB: {e}"
 
+    # Trigger alert notifications for matching alerts
+    notified = check_and_notify(data)
+    alert_msg = f"\n📧 Notified {notified} alert subscriber(s)." if notified else ""
+
     return f"""
 ✅ Listing Saved Successfully
 
 Database ID: {result.inserted_id}
 
-Your listing is now live.
+Your listing is now live.{alert_msg}
 """
 
 # ---------------------------------------------------------------
 # TOOL 4 – Delete
 # ---------------------------------------------------------------
-@mcp.tool()
+@listings_server.tool()
 def delete_listing(listing_id: str) -> str:
     """
     Delete a listing from MongoDB using its ID.
@@ -318,10 +317,3 @@ The listing has been permanently removed from the database.
     except Exception as e:
         logger.error(f"Error deleting listing: {e}")
         return f"❌ Error deleting listing: {e}"
-
-# ---------------------------------------------------------------
-# MAIN
-# ---------------------------------------------------------------
-if __name__ == "__main__":
-    print("🚀 MCP Server running on port 9001")
-    mcp.run(transport="streamable-http")
