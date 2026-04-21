@@ -16,10 +16,15 @@ class CrossEncoderReranker:
     def build_listing_text(self, c: Dict) -> str:
         title        = c.get("title", "")
         description  = c.get("description", "")
-        bed_bath     = f"{c.get('bedroom', '')} bedroom {c.get('bathroom', '')} bathroom"
-        appliances   = " ".join(c.get("amenities", {}).get("appliances", []))
-        utilities    = " ".join(c.get("amenities", {}).get("utilities_included", []))
-        rental_terms = " ".join([str(v) for v in c.get("rental_terms", {}).values()])
+        # Support both `bedrooms`/`bathrooms` (PropertyListing schema) and
+        # legacy `bedroom`/`bathroom` (older tulire_listings documents).
+        bedrooms     = c.get("bedrooms", c.get("bedroom", ""))
+        bathrooms    = c.get("bathrooms", c.get("bathroom", ""))
+        bed_bath     = f"{bedrooms} bedroom {bathrooms} bathroom"
+        amenities    = c.get("amenities") or {}
+        appliances   = " ".join(amenities.get("appliances", []))
+        utilities    = " ".join(amenities.get("utilities_included", []))
+        rental_terms = " ".join(str(v) for v in (c.get("rental_terms") or {}).values())
         return f"{title} {description} {bed_bath} {appliances} {utilities} {rental_terms}"
 
     def rerank(self, user_query: Dict, candidates: List[Dict], top_k: int = 10) -> List[Dict]:

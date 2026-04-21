@@ -135,7 +135,7 @@ def update_listing_fields(parsed_listing_json: str, changes_description: str) ->
     """
     try:
         data = json.loads(parsed_listing_json)
-    except:
+    except (json.JSONDecodeError, ValueError, TypeError):
         return "❌ Invalid JSON input."
 
     text = changes_description.lower()
@@ -143,9 +143,18 @@ def update_listing_fields(parsed_listing_json: str, changes_description: str) ->
     # --- numeric updates ---
     numbers = re.findall(r"\d+", text)
 
+    _BOUNDS = {
+        "price":     (1, 10_000_000),
+        "bedrooms":  (1, 50),
+        "bathrooms": (1, 50),
+    }
+
     def apply_numeric(field):
         if field in text and numbers:
-            data[field] = int(numbers[0])
+            value = int(numbers[0])
+            lo, hi = _BOUNDS.get(field, (1, 10_000_000))
+            if lo <= value <= hi:
+                data[field] = value
 
     apply_numeric("price")
     apply_numeric("bedrooms")
@@ -241,7 +250,7 @@ def save_listing(parsed_listing_json: str) -> str:
 
     try:
         data = json.loads(parsed_listing_json)
-    except:
+    except (json.JSONDecodeError, ValueError, TypeError):
         return "❌ Invalid JSON."
 
     data["last_updated"] = datetime.now().strftime("%Y-%m-%d")

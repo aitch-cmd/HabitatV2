@@ -37,11 +37,13 @@ class GuardrailRateLimitingMiddleware(Middleware):
         session_id = getattr(context.fastmcp_context, 'session_id', 'default_session') if context.fastmcp_context else 'default_session'
         tool_name = context.message.name
 
-        # Stage 1: Check strict Alert Limit first
-        if tool_name == "alert":
+        # Stage 1: Check strict Alert Limit first (matches namespaced alert tools)
+        _ALERT_TOOLS = {"alerts_create_alert", "alerts_list_alerts", "alerts_delete_alert",
+                        "create_alert", "list_alerts", "delete_alert"}
+        if tool_name in _ALERT_TOOLS:
             alert_limiter = self.alert_limiters[session_id]
             if not await alert_limiter.is_allowed():
-                raise RateLimitError(f"Strict rate limit exceeded for 'alert' tool.")
+                raise RateLimitError(f"Strict rate limit exceeded for alert tools.")
 
         # Stage 2: Check general Limit specific to this tool
         tool_limiter_key = f"{session_id}_{tool_name}"

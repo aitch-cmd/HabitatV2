@@ -53,15 +53,10 @@ pip install -r requirements.txt
 Create a `.env` file (or export the variables) with:
 
 ```ini
-# LiveKit
+# LiveKit (only creds needed locally)
 LIVEKIT_URL=wss://<your-project>.livekit.cloud
 LIVEKIT_API_KEY=...
 LIVEKIT_API_SECRET=...
-
-# Plugin API keys (can also be managed via LiveKit Cloud dashboard)
-DEEPGRAM_API_KEY=...
-ANTHROPIC_API_KEY=...
-CARTESIA_API_KEY=...
 
 # HabitatOS FastMCP server
 MCP_SERVER_URL=http://localhost:8000/mcp/
@@ -75,6 +70,11 @@ MAX_CONTEXT_TURNS=20
 TOP_K_MEMORIES=3
 CARTESIA_VOICE_ID=a0e99841-438c-4a64-b679-ae501e7d6091
 ```
+
+> **Provider keys (Deepgram, Anthropic, Cartesia) are not stored locally.**
+> They are configured once in **LiveKit Cloud → Project → Settings →
+> Integrations**; the plugins authenticate through LiveKit at runtime.
+> This keeps secrets out of every client environment.
 
 ## Running
 

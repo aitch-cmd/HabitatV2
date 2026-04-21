@@ -1,5 +1,6 @@
 import os
-import json
+import re
+import html
 import logging
 from datetime import datetime
 from bson import ObjectId
@@ -8,6 +9,8 @@ from db.connection import MongoDBClient
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 from dotenv import load_dotenv
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 load_dotenv()
 
@@ -39,18 +42,18 @@ def send_alert_email(to_email: str, listing_data: dict) -> bool:
         logger.error("SendGrid credentials not configured")
         return False
 
-    address = listing_data.get("address", "Unknown")
-    price = listing_data.get("price", "N/A")
-    bedrooms = listing_data.get("bedrooms", "N/A")
-    description = listing_data.get("description", "")[:200]
+    address = html.escape(str(listing_data.get("address", "Unknown")))
+    price = html.escape(str(listing_data.get("price", "N/A")))
+    bedrooms = html.escape(str(listing_data.get("bedrooms", "N/A")))
+    description = html.escape(str(listing_data.get("description", ""))[:200])
 
     html_content = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-        <h2 style="color:#2d3748;">🏠 New Listing Alert!</h2>
+        <h2 style="color:#2d3748;">New Listing Alert!</h2>
         <p>A new property matching your alert has been listed:</p>
         <div style="background:#f7fafc;border-left:4px solid #4299e1;padding:16px;margin:16px 0;border-radius:4px;">
             <p><strong>Address:</strong> {address}</p>
-            <p><strong>Monthly Rent:</strong> ₹{price}</p>
+            <p><strong>Monthly Rent:</strong> &#8377;{price}</p>
             <p><strong>Bedrooms:</strong> {bedrooms}</p>
             <p><strong>Description:</strong> {description}...</p>
         </div>
@@ -154,6 +157,9 @@ def create_alert(
     Returns:
         Confirmation message with alert ID
     """
+    if not _EMAIL_RE.match(email):
+        return "❌ Invalid email address."
+
     if alerts_collection is None:
         return "❌ MongoDB is not connected."
 

@@ -6,47 +6,54 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_CONFIG = {"alpha": 0.6, "beta": 0.4}
+
+
+def _load_params(params_path: str) -> dict:
+    try:
+        with open(params_path, 'r') as file:
+            params = yaml.safe_load(file)
+        logger.debug('Parameters retrieved from %s', params_path)
+        return params
+    except FileNotFoundError:
+        logger.warning('params.yaml not found at %s, using defaults', params_path)
+        return {"primary_ranker": _DEFAULT_CONFIG}
+    except yaml.YAMLError as e:
+        logger.error('YAML error in %s: %s — using defaults', params_path, e)
+        return {"primary_ranker": _DEFAULT_CONFIG}
+    except Exception as e:
+        logger.error('Unexpected error loading %s: %s — using defaults', params_path, e)
+        return {"primary_ranker": _DEFAULT_CONFIG}
+
 
 class BiEncoderReranker:
-
-    @staticmethod
-    def load_params(params_path: str) -> dict:
-        try:
-            with open(params_path, 'r') as file:
-                params = yaml.safe_load(file)
-            logger.debug('Parameters retrieved from %s', params_path)
-            return params
-        except FileNotFoundError:
-            logger.error('File not found: %s', params_path)
-            raise
-        except yaml.YAMLError as e:
-            logger.error('YAML error: %s', e)
-            raise
-        except Exception as e:
-            logger.error('Unexpected error: %s', e)
-            raise
-
-    CONFIG = load_params("params.yaml")["primary_ranker"]
 
     def __init__(
         self,
         model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
-        alpha: float = CONFIG["alpha"],   # 0.6
-        beta: float = CONFIG["beta"],     # 0.4
-        stage1_top_k: int = 30           # how many to pass to cross-encoder
+        alpha: float = None,
+        beta: float = None,
+        stage1_top_k: int = 30,
+        params_path: str = "params.yaml",
     ):
+        config = _load_params(params_path).get("primary_ranker", _DEFAULT_CONFIG)
         self.embedder = SentenceTransformer(model_name, device="cpu")
-        self.alpha = alpha
-        self.beta = beta
+        self.alpha = alpha if alpha is not None else config.get("alpha", 0.6)
+        self.beta = beta if beta is not None else config.get("beta", 0.4)
         self.stage1_top_k = stage1_top_k
 
     def build_listing_text(self, c: Dict) -> str:
         title        = c.get("title", "")
         description  = c.get("description", "")
-        bed_bath     = f"{c.get('bedroom', '')} bedroom {c.get('bathroom', '')} bathroom"
-        appliances   = " ".join(c.get("amenities", {}).get("appliances", []))
-        utilities    = " ".join(c.get("amenities", {}).get("utilities_included", []))
-        rental_terms = " ".join([str(v) for v in c.get("rental_terms", {}).values()])
+        # Support both `bedrooms`/`bathrooms` (PropertyListing schema) and
+        # legacy `bedroom`/`bathroom` (older tulire_listings documents).
+        bedrooms     = c.get("bedrooms", c.get("bedroom", ""))
+        bathrooms    = c.get("bathrooms", c.get("bathroom", ""))
+        bed_bath     = f"{bedrooms} bedroom {bathrooms} bathroom"
+        amenities    = c.get("amenities") or {}
+        appliances   = " ".join(amenities.get("appliances", []))
+        utilities    = " ".join(amenities.get("utilities_included", []))
+        rental_terms = " ".join(str(v) for v in (c.get("rental_terms") or {}).values())
         return f"{title} {description} {bed_bath} {appliances} {utilities} {rental_terms}"
 
     def rerank(self, user_query: Dict, candidates: List[Dict]) -> List[Dict]:

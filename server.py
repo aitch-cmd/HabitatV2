@@ -1,3 +1,4 @@
+import warnings
 from contextlib import asynccontextmanager
 from motor.motor_asyncio import AsyncIOMotorClient
 from fastmcp import FastMCP
@@ -7,6 +8,7 @@ from presidio_anonymizer import AnonymizerEngine
 import os
 from dotenv import load_dotenv
 load_dotenv()
+from middleware.auth import APIKeyAuthMiddleware
 from middleware.logging import GuardrailsLoggingMiddleware
 from middleware.pii import PIIGuardrailMiddleware
 from middleware.rate_limiter import GuardrailRateLimitingMiddleware
@@ -47,7 +49,7 @@ mcp.state = ServerState()
 
 # ── Middleware (applied to ALL tool calls including mounted sub-servers) ──
 # Order: ErrorHandling → Logging → PromptInjection → PII → RateLimiting → Tool
-mcp.add_middleware(ErrorHandlingMiddleware(include_traceback=True))  
+mcp.add_middleware(ErrorHandlingMiddleware(include_traceback=os.getenv("DEBUG", "false").lower() == "true"))
 mcp.add_middleware(GuardrailsLoggingMiddleware())                     
 mcp.add_middleware(PromptInjectionMiddleware())                       
 mcp.add_middleware(PIIGuardrailMiddleware())                          
@@ -59,5 +61,23 @@ mcp.mount(search_server, namespace="search")
 mcp.mount(listings_server, namespace="listings")
 mcp.mount(alerts_server, namespace="alerts")
 
+# ── ASGI app (streamable-HTTP transport) ──────────────────────────────────────
+# Expose as module-level `app` so it can be served with:
+#   uvicorn server:app --host 0.0.0.0 --port 8000
+_api_key = os.getenv("MCP_API_KEY", "")
+if not _api_key:
+    warnings.warn(
+        "MCP_API_KEY is not set — HabitatOS MCP server is running WITHOUT authentication. "
+        "Set MCP_API_KEY in .env before deploying.",
+        RuntimeWarning,
+        stacklevel=1,
+    )
+
+app = mcp.http_app()
+if _api_key:
+    app.add_middleware(APIKeyAuthMiddleware, api_key=_api_key)
+
+
 if __name__ == "__main__":
-    mcp.run()
+    import uvicorn
+    uvicorn.run("server:app", host="0.0.0.0", port=8000, reload=False)

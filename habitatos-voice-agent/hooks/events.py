@@ -39,8 +39,8 @@ async def on_conversation_item_added(item, short_term_memory) -> None:
 
 
 async def _store_memory(user_id: str, turns: list[dict]) -> None:
-    """Async wrapper so store() doesn't block the event loop."""
+    """Background write — summarization + DB insert both run off-loop."""
     try:
-        long_term_memory.store(user_id, turns)
+        await long_term_memory.astore(user_id, turns)
     except Exception:
         logger.exception("Background memory store failed for user_id=%s", user_id)

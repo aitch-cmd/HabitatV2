@@ -17,7 +17,7 @@ import logging
 from fastmcp import Client
 from livekit.agents import function_tool
 
-from config import MCP_SERVER_URL, MCP_TIMEOUT
+from config import MCP_SERVER_URL, MCP_TIMEOUT, MCP_API_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +26,17 @@ FALLBACK = "Sorry, I couldn't reach the property database right now."
 
 # ── Transport helper ─────────────────────────────────────────────
 
+_CLIENT_KWARGS: dict = {"timeout": MCP_TIMEOUT}
+if MCP_API_KEY:
+    # FastMCP 3.x: a bare string passed as `auth` is auto-wrapped in a
+    # Bearer authenticator — no need to build httpx.Auth manually.
+    _CLIENT_KWARGS["auth"] = MCP_API_KEY
+
+
 async def _call_mcp(tool_name: str, args: dict) -> str:
     """Open a short-lived MCP client, call `tool_name`, stringify the result."""
     try:
-        async with Client(MCP_SERVER_URL, timeout=MCP_TIMEOUT) as client:
+        async with Client(MCP_SERVER_URL, **_CLIENT_KWARGS) as client:
             result = await client.call_tool(tool_name, args)
     except Exception:
         logger.exception("MCP call failed: %s", tool_name)

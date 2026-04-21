@@ -23,7 +23,7 @@ INJECTION_PATTERNS = {
         r"\bpretend (you are|to be|you're)\b",
         r"\byou are now\b",
         r"\bswitch (to|into) (mode|role|persona)\b",
-        r"\bdo anything now\b",            # DAN
+        r"\bdo anything now\b",            
         r"\bjailbreak\b",
         r"\bdan mode\b",
         r"\bdevmode\b",

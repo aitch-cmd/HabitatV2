@@ -33,17 +33,22 @@ from hooks.guardrails import (
     should_give_optimistic_response,
 )
 from mcp_bridge import build_habitat_tools
-from memory.long_term import long_term_memory
 from memory.short_term import ShortTermMemory
+from memory.tools import build_memory_tools
 
 logger = logging.getLogger(__name__)
 
 
 # ── System Prompt Builder ────────────────────────────────────────
 
-def build_system_prompt(user_id: str) -> str:
-    """Base persona plus any long-term memories we have for this user."""
-    base = (
+def build_system_prompt() -> str:
+    """
+    Base persona. User-specific memories are no longer baked in at session
+    start — the LLM pulls them on demand via `recall_memory`, which keeps
+    retrieval contextual to the current turn and avoids blocking I/O on the
+    event loop during session setup.
+    """
+    return (
         "You are HabitatOS, a friendly and efficient rental property assistant "
         "specializing in the Indian rental market. You help users search for "
         "properties, set up listing alerts, and manage their rental preferences.\n\n"
@@ -52,16 +57,14 @@ def build_system_prompt(user_id: str) -> str:
         "- Keep responses under 3 sentences unless you are listing properties.\n"
         "- Always confirm before creating or deleting anything.\n"
         "- Never read out MongoDB ObjectIds — say 'done' or use a friendly reference.\n"
-        "- Use Indian English conventions (lakh, BHK, etc.).\n"
+        "- Use Indian English conventions (lakh, BHK, etc.).\n\n"
+        "Memory:\n"
+        "- Call `recall_memory` when the user refers to a prior session "
+        "('like last time', 'my usual area') or when their past preferences "
+        "would materially improve the next response.\n"
+        "- Do not call it for small talk, greetings, or when the user has "
+        "already stated their criteria in this session.\n"
     )
-
-    memories = long_term_memory.retrieve(
-        query="user preferences and history", user_id=user_id
-    )
-    if memories:
-        base += f"\nWhat you already know about this user:\n{memories}\n"
-
-    return base
 
 
 # ── Agent ────────────────────────────────────────────────────────
@@ -73,10 +76,10 @@ class HabitatAgent(Agent):
       • Emits an optimistic "Let me check…" for tool-heavy phrasings.
     """
 
-    def __init__(self, instructions: str) -> None:
+    def __init__(self, instructions: str, user_id: str) -> None:
         super().__init__(
             instructions=instructions,
-            tools=build_habitat_tools(),
+            tools=[*build_habitat_tools(), *build_memory_tools(user_id)],
         )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
@@ -112,7 +115,7 @@ async def entrypoint(ctx: JobContext) -> None:
         allow_interruptions=True,
     )
 
-    agent = HabitatAgent(instructions=build_system_prompt(user_id))
+    agent = HabitatAgent(instructions=build_system_prompt(), user_id=user_id)
 
     # ── Wire event hooks ─────────────────────────────────────────
 

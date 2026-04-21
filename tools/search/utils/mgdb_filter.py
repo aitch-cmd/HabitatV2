@@ -63,18 +63,18 @@ class MongoDBFilter:
         numeric_index_exists = False
 
         for idx_name, idx_info in existing.items():
-            if idx_info["key"] == [("rent_price", 1)]:
+            if idx_info["key"] == [("price", 1)]:
                 numeric_index_exists = True
                 break
 
         if not numeric_index_exists:
-            print("🔧 Creating numeric index: rent_price")
+            print("Creating numeric index: price")
             self.collection.create_index(
-                [("rent_price", 1)],
-                name="rent_price_1"
+                [("price", 1)],
+                name="price_1"
             )
         else:
-            print("✔ Numeric index already exists: rent_price_1")
+            print("Numeric index already exists: price_1")
 
     # -------------------------
     # QUERY BUILDING
@@ -86,13 +86,13 @@ class MongoDBFilter:
         if parsed_message.get("location"):
             query["$text"] = {"$search": parsed_message["location"]}
 
-        # Rent price filter
+        # Price filter (field name matches PropertyListing schema: `price`)
         if parsed_message.get("price"):
             try:
                 price_str = "".join(ch for ch in str(parsed_message["price"]) if ch.isdigit())
                 if price_str:
                     price_val = int(price_str)
-                    query["rent_price"] = {"$lte": price_val}
+                    query["price"] = {"$lte": price_val}
             except (ValueError, TypeError):
                 print(f"Invalid price value: {parsed_message['price']}")
 

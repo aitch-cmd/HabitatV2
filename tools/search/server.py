@@ -1,6 +1,6 @@
 import asyncio
 from typing import Any
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from tools.search.utils.parser import UserMessageParser
 from tools.search.utils.mgdb_filter import MongoDBFilter
 from tools.search.utils.bi_encoder import BiEncoderReranker
