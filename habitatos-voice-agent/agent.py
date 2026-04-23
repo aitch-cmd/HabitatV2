@@ -76,10 +76,10 @@ class HabitatAgent(Agent):
       • Emits an optimistic "Let me check…" for tool-heavy phrasings.
     """
 
-    def __init__(self, instructions: str, user_id: str) -> None:
+    def __init__(self, instructions: str, user_id: str, mcp_tools: list) -> None:
         super().__init__(
             instructions=instructions,
-            tools=[*build_habitat_tools(), *build_memory_tools(user_id)],
+            tools=[*mcp_tools, *build_memory_tools(user_id)],
         )
 
     async def on_user_turn_completed(self, turn_ctx, new_message) -> None:
@@ -105,6 +105,10 @@ async def entrypoint(ctx: JobContext) -> None:
     user_id = ctx.room.name or "anonymous"
     logger.info("Session started — user_id=%s, room=%s", user_id, ctx.room.name)
 
+    # Dynamic MCP discovery — fetch the live tool surface before building
+    # the agent, so the LLM sees whatever the server currently exposes.
+    mcp_tools = await build_habitat_tools()
+
     short_term = ShortTermMemory()
 
     session = AgentSession(
@@ -115,7 +119,11 @@ async def entrypoint(ctx: JobContext) -> None:
         allow_interruptions=True,
     )
 
-    agent = HabitatAgent(instructions=build_system_prompt(), user_id=user_id)
+    agent = HabitatAgent(
+        instructions=build_system_prompt(),
+        user_id=user_id,
+        mcp_tools=mcp_tools,
+    )
 
     # ── Wire event hooks ─────────────────────────────────────────
 

@@ -8,7 +8,7 @@ from presidio_anonymizer import AnonymizerEngine
 import os
 from dotenv import load_dotenv
 load_dotenv()
-from middleware.auth import APIKeyAuthMiddleware
+from middleware.auth import JWTAuthMiddleware
 from middleware.logging import GuardrailsLoggingMiddleware
 from middleware.pii import PIIGuardrailMiddleware
 from middleware.rate_limiter import GuardrailRateLimitingMiddleware
@@ -64,18 +64,32 @@ mcp.mount(alerts_server, namespace="alerts")
 # ── ASGI app (streamable-HTTP transport) ──────────────────────────────────────
 # Expose as module-level `app` so it can be served with:
 #   uvicorn server:app --host 0.0.0.0 --port 8000
-_api_key = os.getenv("MCP_API_KEY", "")
-if not _api_key:
+_jwt_secret = os.getenv("MCP_JWT_SECRET", "")
+_jwt_algorithms = [
+    a.strip()
+    for a in os.getenv("MCP_JWT_ALGORITHMS", "HS256").split(",")
+    if a.strip()
+]
+_jwt_audience = os.getenv("MCP_JWT_AUDIENCE") or None
+_jwt_issuer = os.getenv("MCP_JWT_ISSUER") or None
+
+if not _jwt_secret:
     warnings.warn(
-        "MCP_API_KEY is not set — HabitatOS MCP server is running WITHOUT authentication. "
-        "Set MCP_API_KEY in .env before deploying.",
+        "MCP_JWT_SECRET is not set — HabitatOS MCP server is running WITHOUT authentication. "
+        "Set MCP_JWT_SECRET in .env before deploying.",
         RuntimeWarning,
         stacklevel=1,
     )
 
 app = mcp.http_app()
-if _api_key:
-    app.add_middleware(APIKeyAuthMiddleware, api_key=_api_key)
+if _jwt_secret:
+    app.add_middleware(
+        JWTAuthMiddleware,
+        secret=_jwt_secret,
+        algorithms=_jwt_algorithms,
+        audience=_jwt_audience,
+        issuer=_jwt_issuer,
+    )
 
 
 if __name__ == "__main__":
