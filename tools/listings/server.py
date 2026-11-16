@@ -4,9 +4,8 @@ import re
 import logging
 from datetime import datetime
 from typing import Dict, Any, Tuple
-from bson import ObjectId
 from fastmcp import FastMCP
-from db.connection import MongoDBClient
+from db.connection import postgres_client
 from tools.listings.utils.parser import ParserListings
 from tools.alerts.server import check_and_notify
 
@@ -14,15 +13,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("listings_mcp")
 
 listings_server = FastMCP("property_listings")
-
-# ---------- DB Setup ----------
-try:
-    db_client = MongoDBClient(database_name="rental_database")
-    collection = db_client.database["tulire_listings"]
-    logger.info("Connected to MongoDB.")
-except Exception as e:
-    collection = None
-    logger.error(f"MongoDB connection failed: {e}")
 
 parser = ParserListings()
 
@@ -243,11 +233,8 @@ Updated JSON:
 @listings_server.tool()
 def save_listing(parsed_listing_json: str) -> str:
     """
-    Saves the final listing into MongoDB.
+    Saves the final listing into PostgreSQL.
     """
-    if collection is None:
-        return "❌ MongoDB is not connected."
-
     try:
         data = json.loads(parsed_listing_json)
     except (json.JSONDecodeError, ValueError, TypeError):
@@ -255,10 +242,57 @@ def save_listing(parsed_listing_json: str) -> str:
 
     data["last_updated"] = datetime.now().strftime("%Y-%m-%d")
 
+    # Prepare fields for SQL insertion
+    title = data.get("title") or f"{data.get('bedrooms', '')} BHK in {data.get('address', '')}"
+    address = data.get("address", "")
+    price = int(data.get("price", 0))
+    bedrooms = int(data.get("bedrooms", 0)) if data.get("bedrooms") else None
+    bathrooms = int(data.get("bathrooms", 0)) if data.get("bathrooms") else None
+    description = data.get("description", "")
+    property_type = data.get("property_type", "Apartment")
+    furnishing_status = data.get("furnishing_status", "Unfurnished")
+    contact = data.get("contact", "")
+    pet_friendly = data.get("pet_friendly", "unknown")
+    listing_url = data.get("listing_url", "")
+    source = data.get("source", "user_created")
+    last_updated = data.get("last_updated")
+
+    amenities = data.get("amenities") or {}
+    amenities_json = json.dumps(amenities) if isinstance(amenities, (dict, list)) else "{}"
+
+    rental_terms = data.get("rental_terms") or {}
+    rental_terms_json = json.dumps(rental_terms) if isinstance(rental_terms, (dict, list)) else "{}"
+    security_deposit = str(rental_terms.get("security_deposit", "Not specified"))
+
+    # Extract locality / city from address if possible
+    parts = [p.strip() for p in address.split(",") if p.strip()]
+    city = parts[-1] if len(parts) > 1 else ""
+    locality = parts[0] if parts else ""
+
+    insert_sql = """
+    INSERT INTO listings (
+        title, address, locality, city, price, bedrooms, bathrooms,
+        description, property_type, furnishing_status, contact,
+        security_deposit, pet_friendly, listing_url, amenities,
+        rental_terms, source, last_updated
+    ) VALUES (
+        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s, %s
+    ) RETURNING id;
+    """
+
     try:
-        result = collection.insert_one(data)
+        inserted_id = postgres_client.execute_and_return_id(
+            insert_sql,
+            (
+                title, address, locality, city, price, bedrooms, bathrooms,
+                description, property_type, furnishing_status, contact,
+                security_deposit, pet_friendly, listing_url, amenities_json,
+                rental_terms_json, source, last_updated,
+            ),
+        )
     except Exception as e:
-        return f"❌ Error saving to DB: {e}"
+        logger.error(f"Error saving listing to PostgreSQL: {e}")
+        return f"❌ Error saving to PostgreSQL: {e}"
 
     # Trigger alert notifications for matching alerts
     notified = check_and_notify(data)
@@ -267,7 +301,7 @@ def save_listing(parsed_listing_json: str) -> str:
     return f"""
 ✅ Listing Saved Successfully
 
-Database ID: {result.inserted_id}
+Database ID: {inserted_id}
 
 Your listing is now live.{alert_msg}
 """
@@ -278,38 +312,39 @@ Your listing is now live.{alert_msg}
 @listings_server.tool()
 def delete_listing(listing_id: str) -> str:
     """
-    Delete a listing from MongoDB using its ID.
+    Delete a listing from PostgreSQL using its ID.
     
     Args:
-        listing_id: The MongoDB ObjectId of the listing to delete (as string)
+        listing_id: The ID of the listing to delete (integer as string)
     
     Returns:
         Success or error message
     """
-    if collection is None:
-        return "❌ MongoDB is not connected."
-    
     try:
-        # Convert string to ObjectId
-        object_id = ObjectId(listing_id)
-    except Exception as e:
-        return f"❌ Invalid listing ID format: {e}"
-    
+        lid = int(listing_id.strip())
+    except ValueError:
+        return f"❌ Invalid listing ID format: {listing_id}. Must be an integer ID."
+
     try:
-        # First, check if the listing exists
-        existing = collection.find_one({"_id": object_id})
+        # First check if the listing exists
+        existing = postgres_client.fetch_one(
+            "SELECT id, address, price FROM listings WHERE id = %s;",
+            (lid,),
+        )
         
         if not existing:
             return f"❌ Listing not found with ID: {listing_id}"
         
-        # Show what's being deleted
         address = existing.get("address", "Unknown")
         price = existing.get("price", "N/A")
         
         # Delete the listing
-        result = collection.delete_one({"_id": object_id})
+        rows_deleted = postgres_client.execute(
+            "DELETE FROM listings WHERE id = %s;",
+            (lid,),
+        )
         
-        if result.deleted_count == 1:
+        if rows_deleted > 0:
             return f"""
 ✅ Listing Deleted Successfully
 

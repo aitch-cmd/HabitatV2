@@ -1,13 +1,14 @@
 import os
 import re
 import html
+import json
+import smtplib
 import logging
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from datetime import datetime
-from bson import ObjectId
 from fastmcp import FastMCP
-from db.connection import MongoDBClient
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
+from db.connection import postgres_client
 from dotenv import load_dotenv
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -19,27 +20,27 @@ logger = logging.getLogger("alerts_mcp")
 
 alerts_server = FastMCP("listing_alerts")
 
-# ---------- DB & SendGrid Setup ----------
-try:
-    db_client = MongoDBClient(database_name="rental_database")
-    alerts_collection = db_client.database["listing_alerts"]
-    logger.info("Alerts: Connected to MongoDB.")
-except Exception as e:
-    alerts_collection = None
-    logger.error(f"Alerts: MongoDB connection failed: {e}")
-
-SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY")
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+# SMTP Configuration (Standard App Password authentication)
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER") or os.getenv("SENDER_EMAIL")
+SMTP_APP_PASSWORD = os.getenv("SMTP_APP_PASSWORD")
 
 
 # ---------------------------------------------------------------
-# Email helper
+# SMTP Email helper using App Password
 # ---------------------------------------------------------------
 
 def send_alert_email(to_email: str, listing_data: dict) -> bool:
-    """Send an email notification for a matching listing."""
-    if not SENDGRID_API_KEY or not SENDER_EMAIL:
-        logger.error("SendGrid credentials not configured")
+    """
+    Send an HTML alert email using standard SMTP with an App Password.
+    Compatible with Gmail, Outlook, or any standard SMTP service.
+    """
+    if not SMTP_USER or not SMTP_APP_PASSWORD:
+        logger.warning(
+            "SMTP credentials not configured (set SMTP_USER and SMTP_APP_PASSWORD in .env). "
+            f"Skipping actual email delivery to {to_email}."
+        )
         return False
 
     address = html.escape(str(listing_data.get("address", "Unknown")))
@@ -48,89 +49,96 @@ def send_alert_email(to_email: str, listing_data: dict) -> bool:
     description = html.escape(str(listing_data.get("description", ""))[:200])
 
     html_content = f"""
-    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;">
-        <h2 style="color:#2d3748;">New Listing Alert!</h2>
-        <p>A new property matching your alert has been listed:</p>
-        <div style="background:#f7fafc;border-left:4px solid #4299e1;padding:16px;margin:16px 0;border-radius:4px;">
-            <p><strong>Address:</strong> {address}</p>
-            <p><strong>Monthly Rent:</strong> &#8377;{price}</p>
-            <p><strong>Bedrooms:</strong> {bedrooms}</p>
-            <p><strong>Description:</strong> {description}...</p>
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px;border:1px solid #e2e8f0;border-radius:8px;">
+        <h2 style="color:#2b6cb0;margin-top:0;">🏠 New Listing Alert!</h2>
+        <p style="color:#4a5568;">A new property matching your alert criteria has been listed:</p>
+        <div style="background:#f7fafc;border-left:4px solid #3182ce;padding:16px;margin:16px 0;border-radius:4px;">
+            <p style="margin:4px 0;"><strong>Address:</strong> {address}</p>
+            <p style="margin:4px 0;"><strong>Monthly Rent:</strong> &#8377;{price}</p>
+            <p style="margin:4px 0;"><strong>Bedrooms:</strong> {bedrooms} BHK</p>
+            <p style="margin:4px 0;"><strong>Description:</strong> {description}...</p>
         </div>
-        <p style="color:#718096;font-size:12px;">— HabitatOS Alerts</p>
+        <p style="color:#718096;font-size:12px;margin-bottom:0;">— HabitatOS Alerts Notification Engine</p>
     </div>
     """
 
-    message = Mail(
-        from_email=SENDER_EMAIL,
-        to_emails=to_email,
-        subject=f"🏠 New Listing: {address} — ₹{price}/mo",
-        html_content=html_content,
-    )
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🏠 New Listing Alert: {address} — ₹{price}/mo"
+    msg["From"] = SMTP_USER
+    msg["To"] = to_email
+    msg.attach(MIMEText(html_content, "html"))
 
     try:
-        sg = SendGridAPIClient(SENDGRID_API_KEY)
-        sg.send(message)
-        logger.info(f"Alert email sent to {to_email}")
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(SMTP_USER, SMTP_APP_PASSWORD)
+            server.sendmail(SMTP_USER, [to_email], msg.as_string())
+        logger.info(f"Alert email sent successfully to {to_email}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send alert email to {to_email}: {e}")
+        logger.error(f"Failed to send alert email via SMTP to {to_email}: {e}")
         return False
 
 
 # ---------------------------------------------------------------
-# Alert matching — called by listings server after save
+# Index-Backed Alert Matching (No Table Scan, No Polling Worker)
 # ---------------------------------------------------------------
+
+def find_matching_alerts(listing_data: dict) -> list[dict]:
+    """
+    Query PostgreSQL using composite and pattern indexes to retrieve
+    ONLY the alerts that match the given listing.
+    """
+    try:
+        price = int(listing_data.get("price") or 0)
+        bedrooms = int(listing_data.get("bedrooms") or 0)
+        address = str(listing_data.get("address") or "")
+        locality = str(listing_data.get("locality") or "")
+        city = str(listing_data.get("city") or "")
+
+        sql = """
+        SELECT id, email, location, max_price, min_bedrooms
+        FROM listing_alerts
+        WHERE active = TRUE
+          AND (max_price = 0 OR max_price >= %(price)s)
+          AND (min_bedrooms = 0 OR min_bedrooms <= %(bedrooms)s)
+          AND (
+              location IS NULL
+              OR location = ''
+              OR %(address)s ILIKE ('%%' || location || '%%')
+              OR %(locality)s ILIKE ('%%' || location || '%%')
+              OR %(city)s ILIKE ('%%' || location || '%%')
+          );
+        """
+        return postgres_client.fetch_all(sql, {
+            "price": price,
+            "bedrooms": bedrooms,
+            "address": address,
+            "locality": locality,
+            "city": city,
+        })
+    except Exception as e:
+        logger.error(f"Error querying matching alerts from PostgreSQL index: {e}")
+        return []
+
 
 def check_and_notify(listing_data: dict) -> int:
     """
-    Check all active alerts against a newly saved listing.
-    Sends emails for matches. Returns count of notifications sent.
+    Triggered when a new listing is saved.
+    Directly pulls matching alerts from database indexes and dispatches notifications.
     """
-    if alerts_collection is None:
+    matching_alerts = find_matching_alerts(listing_data)
+    if not matching_alerts:
         return 0
 
-    alerts = list(alerts_collection.find({"active": True}))
     sent = 0
-
-    for alert in alerts:
-        if _matches(alert, listing_data):
-            if send_alert_email(alert["email"], listing_data):
-                sent += 1
+    for alert in matching_alerts:
+        if send_alert_email(alert["email"], listing_data):
+            sent += 1
 
     return sent
-
-
-def _matches(alert: dict, listing: dict) -> bool:
-    """Check if a listing matches an alert's filters."""
-    filters = alert.get("filters", {})
-
-    # Location filter (case-insensitive substring)
-    loc = filters.get("location")
-    if loc:
-        listing_addr = (listing.get("address") or "").lower()
-        if loc.lower() not in listing_addr:
-            return False
-
-    # Max price filter
-    max_price = filters.get("max_price")
-    if max_price and listing.get("price"):
-        try:
-            if int(listing["price"]) > int(max_price):
-                return False
-        except (ValueError, TypeError):
-            pass
-
-    # Min bedrooms filter
-    min_beds = filters.get("min_bedrooms")
-    if min_beds and listing.get("bedrooms"):
-        try:
-            if int(listing["bedrooms"]) < int(min_beds):
-                return False
-        except (ValueError, TypeError):
-            pass
-
-    return True
 
 
 # ---------------------------------------------------------------
@@ -145,57 +153,60 @@ def create_alert(
     min_bedrooms: int = 0,
 ) -> str:
     """
-    Create a listing alert. The user will receive an email when a new
-    listing matching the filters is saved.
+    Create a listing alert. You'll receive email notifications when a new
+    matching property is added.
 
     Args:
-        email:        Email address to send notifications to
-        location:     Location filter (city/area substring match)
-        max_price:    Maximum monthly rent (0 = no limit)
+        email:        Recipient email address
+        location:     Target city or locality substring match (e.g. 'South Delhi', 'Koramangala')
+        max_price:    Maximum monthly rent in INR (0 = no limit)
         min_bedrooms: Minimum number of bedrooms (0 = no limit)
 
     Returns:
-        Confirmation message with alert ID
+        Confirmation with alert ID and registered filters.
     """
     if not _EMAIL_RE.match(email):
         return "❌ Invalid email address."
 
-    if alerts_collection is None:
-        return "❌ MongoDB is not connected."
-
     filters = {}
     if location:
-        filters["location"] = location
+        filters["location"] = location.strip()
     if max_price > 0:
         filters["max_price"] = max_price
     if min_bedrooms > 0:
         filters["min_bedrooms"] = min_bedrooms
 
-    doc = {
-        "email": email,
-        "filters": filters,
-        "active": True,
-        "created_at": datetime.now().isoformat(),
-    }
+    insert_sql = """
+    INSERT INTO listing_alerts (email, location, max_price, min_bedrooms, filters, active)
+    VALUES (%s, %s, %s, %s, %s::jsonb, TRUE)
+    RETURNING id;
+    """
 
-    result = alerts_collection.insert_one(doc)
+    try:
+        inserted_id = postgres_client.execute_and_return_id(
+            insert_sql,
+            (email, location.strip(), max_price, min_bedrooms, json.dumps(filters)),
+        )
+    except Exception as e:
+        logger.error(f"Error creating alert in PostgreSQL: {e}")
+        return f"❌ Error saving alert to database: {e}"
 
     filter_desc = []
     if location:
-        filter_desc.append(f"Location: {location}")
+        filter_desc.append(f"Location: {location.strip()}")
     if max_price > 0:
-        filter_desc.append(f"Max price: ₹{max_price}")
+        filter_desc.append(f"Max budget: ₹{max_price:,}")
     if min_bedrooms > 0:
-        filter_desc.append(f"Min bedrooms: {min_bedrooms}")
+        filter_desc.append(f"Min bedrooms: {min_bedrooms} BHK")
 
     return f"""
-✅ Alert Created
+✅ Alert Created Successfully
 
-**Alert ID**: {result.inserted_id}
+**Alert ID**: {inserted_id}
 **Email**: {email}
-**Filters**: {', '.join(filter_desc) if filter_desc else 'All listings'}
+**Indexed Filters**: {', '.join(filter_desc) if filter_desc else 'All new listings'}
 
-You'll receive an email when a matching listing is added.
+You will automatically receive an email alert whenever a matching listing is added.
 """
 
 
@@ -206,36 +217,39 @@ You'll receive an email when a matching listing is added.
 @alerts_server.tool()
 def list_alerts(email: str) -> str:
     """
-    List all active alerts for an email address.
+    List all active alerts registered for an email address.
 
     Args:
-        email: Email address to look up alerts for
-
-    Returns:
-        Formatted list of active alerts
+        email: Email address to query
     """
-    if alerts_collection is None:
-        return "❌ MongoDB is not connected."
-
-    alerts = list(alerts_collection.find({"email": email, "active": True}))
+    try:
+        alerts = postgres_client.fetch_all(
+            "SELECT id, location, max_price, min_bedrooms, created_at FROM listing_alerts WHERE email = %s AND active = TRUE ORDER BY id DESC;",
+            (email,),
+        )
+    except Exception as e:
+        logger.error(f"Error listing alerts from PostgreSQL: {e}")
+        return f"❌ Error retrieving alerts: {e}"
 
     if not alerts:
         return f"No active alerts found for {email}."
 
     lines = [f"**Active Alerts for {email}** ({len(alerts)} total)\n"]
     for a in alerts:
-        filters = a.get("filters", {})
         f_parts = []
-        if filters.get("location"):
-            f_parts.append(f"Location: {filters['location']}")
-        if filters.get("max_price"):
-            f_parts.append(f"Max ₹{filters['max_price']}")
-        if filters.get("min_bedrooms"):
-            f_parts.append(f"Min {filters['min_bedrooms']}BHK")
+        if a.get("location"):
+            f_parts.append(f"Location: {a['location']}")
+        if a.get("max_price") and a["max_price"] > 0:
+            f_parts.append(f"Max ₹{a['max_price']:,}")
+        if a.get("min_bedrooms") and a["min_bedrooms"] > 0:
+            f_parts.append(f"Min {a['min_bedrooms']}BHK")
+
+        created = a.get("created_at")
+        created_str = created.strftime("%Y-%m-%d") if hasattr(created, "strftime") else str(created or "N/A")
 
         lines.append(
-            f"- **{a['_id']}** → {', '.join(f_parts) if f_parts else 'All listings'} "
-            f"(created {a.get('created_at', 'N/A')})"
+            f"- **Alert #{a['id']}** → {', '.join(f_parts) if f_parts else 'All listings'} "
+            f"(created {created_str})"
         )
 
     return "\n".join(lines)
@@ -251,25 +265,23 @@ def delete_alert(alert_id: str) -> str:
     Deactivate an alert by its ID.
 
     Args:
-        alert_id: The MongoDB ObjectId of the alert to deactivate
-
-    Returns:
-        Success or error message
+        alert_id: The ID of the alert to deactivate
     """
-    if alerts_collection is None:
-        return "❌ MongoDB is not connected."
+    try:
+        aid = int(str(alert_id).strip())
+    except ValueError:
+        return f"❌ Invalid alert ID format: {alert_id}. Must be an integer ID."
 
     try:
-        oid = ObjectId(alert_id)
-    except Exception:
-        return f"❌ Invalid alert ID format: {alert_id}"
+        rows_updated = postgres_client.execute(
+            "UPDATE listing_alerts SET active = FALSE WHERE id = %s RETURNING id;",
+            (aid,),
+        )
 
-    result = alerts_collection.update_one(
-        {"_id": oid},
-        {"$set": {"active": False}},
-    )
-
-    if result.modified_count == 1:
-        return f"✅ Alert {alert_id} deactivated."
-    else:
-        return f"❌ Alert not found or already inactive: {alert_id}"
+        if rows_updated > 0:
+            return f"✅ Alert #{alert_id} deactivated."
+        else:
+            return f"❌ Alert #{alert_id} not found or already inactive."
+    except Exception as e:
+        logger.error(f"Error deleting alert: {e}")
+        return f"❌ Error deleting alert: {e}"
