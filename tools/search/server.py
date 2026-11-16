@@ -55,15 +55,82 @@ class ProductionPropertyPipeline:
 
         # 3. Detect common Indian cities
         city = None
-        for c in ["delhi", "mumbai", "bangalore", "kolkata", "hyderabad", "chennai"]:
+        for c in ["delhi", "mumbai", "bangalore", "kolkata", "hyderabad", "chennai", "noida", "gurgaon", "gurugram", "ghaziabad", "faridabad"]:
             if c in lower_msg:
-                city = c.title()
+                city = "Gurgaon" if c in ["gurgaon", "gurugram"] else c.title()
                 break
 
+        # 4. Detect NCR Localities / Landmarks / Phonetic Synonyms
+        location = parsed.get("location")
+        locality_map = {
+            "rajiv chowk": "Connaught Place",
+            "rajiv chok": "Connaught Place",
+            "nargiv chalk": "Connaught Place",
+            "connaught place": "Connaught Place",
+            "cp": "Connaught Place",
+            "hauz khas": "Hauz Khas",
+            "saket": "Saket",
+            "vasant kunj": "Vasant Kunj",
+            "vasant vihar": "Vasant Vihar",
+            "greater kailash": "Greater Kailash",
+            "gk": "Greater Kailash",
+            "defence colony": "Defence Colony",
+            "def col": "Defence Colony",
+            "south delhi": "South Delhi",
+            "rohini": "Rohini",
+            "janakpuri": "Janakpuri",
+            "dwarka": "Dwarka",
+            "karampura": "Karampura",
+            "mayur vihar": "Mayur Vihar",
+            "laxmi nagar": "Laxmi Nagar",
+            "nehru place": "Nehru Place",
+            "malviya nagar": "Malviya Nagar",
+            "green park": "Green Park",
+            "chattarpur": "Chattarpur",
+            "chhatarpur": "Chattarpur",
+            "lajpat nagar": "Lajpat Nagar",
+            "sector 62": "Sector 62",
+            "sector 137": "Sector 137",
+            "cyber city": "DLF Cyber City",
+            "golf course road": "Golf Course Road",
+        }
+        for pattern, canon in locality_map.items():
+            if pattern in lower_msg:
+                location = canon
+                if not city:
+                    if canon in ["Sector 62", "Sector 137"]:
+                        city = "Noida"
+                    elif canon in ["DLF Cyber City", "Golf Course Road"]:
+                        city = "Gurgaon"
+                    else:
+                        city = "Delhi"
+                break
+
+        # Enforce search query text with canonical location if found
+        rag_text = user_message
+        if location and location.lower() not in lower_msg:
+            rag_text = f"{user_message} {location}"
+
+        # Zone expansion for regional areas (addresses in DB store specific localities, not generic zones)
+        zone_expansions = {
+            "south delhi": "Saket Hauz Khas Malviya Nagar Greater Kailash Vasant Kunj",
+            "north delhi": "Rohini Model Town Pitampura Civil Lines",
+            "west delhi": "Janakpuri Punjabi Bagh Rajouri Garden Patel Nagar",
+            "east delhi": "Mayur Vihar Laxmi Nagar Preet Vihar Anand Vihar",
+            "central delhi": "Connaught Place Karol Bagh",
+        }
+        for zone, expanded_localities in zone_expansions.items():
+            if zone in lower_msg:
+                rag_text = f"{rag_text} {expanded_localities}"
+                if not city:
+                    city = "Delhi"
+                if not location:
+                    location = "South Delhi" if zone == "south delhi" else zone.title()
+
         return {
-            "location": parsed.get("location"),
+            "location": location,
             "price": price,
-            "rag_content": parsed.get("rag_content") or user_message,
+            "rag_content": rag_text,
             "target_bhk": target_bhk,
             "city": city,
         }
@@ -76,7 +143,7 @@ class ProductionPropertyPipeline:
 
         # 2. Stage 1 & Stage 2: In-Database Hybrid RAG (pgvector + BM25 RRF)
         candidates = self.hybrid_searcher.search(
-            query_text=user_message,
+            query_text=intent["rag_content"],
             budget=intent["price"],
             target_bhk=intent["target_bhk"],
             city=intent["city"],

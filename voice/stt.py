@@ -33,6 +33,14 @@ class FasterWhisperSTT:
                 temperature=0.0,
                 condition_on_previous_text=False,
                 vad_filter=False,  # Already filtered by Silero VAD
+                initial_prompt=(
+                    "HabitatOS real estate voice assistant for Indian rental search: "
+                    "1BHK, 2BHK, 3BHK, 4BHK, 1 BHK, 2 BHK, 3 BHK, flat, apartment, "
+                    "under, budget, thousand, lakh, owner, direct from owner, "
+                    "Rajiv Chowk, Connaught Place, Hauz Khas, Saket, Greater Kailash, "
+                    "Vasant Kunj, Rohini, Janakpuri, Karampura, Dwarka, Mayur Vihar, "
+                    "Noida, Gurgaon, Gurugram, South Delhi, Delhi, Mumbai, Bangalore."
+                ),
             )
             text = " ".join(s.text.strip() for s in segments if s.text).strip()
             return text

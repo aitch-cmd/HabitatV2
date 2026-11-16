@@ -45,10 +45,13 @@ class HybridRAGSearcher:
             "top_k": top_k,
         }
 
-        # Price upper bound with 15% buffer
+        # Price bounds with 15% upper buffer and reasonable lower bound for mid/high budgets
         if budget and budget > 0:
             params["max_price"] = int(budget * 1.15)
             conditions.append("price <= %(max_price)s")
+            if budget >= 12000:
+                params["min_price"] = int(budget * 0.45)
+                conditions.append("price >= %(min_price)s")
 
         # Target BHK filter (allows exact or nearby if relaxed)
         if target_bhk and target_bhk > 0:
@@ -64,18 +67,12 @@ class HybridRAGSearcher:
 
         # Step 3: In-Database Hybrid RAG with Reciprocal Rank Fusion (Stage 2)
         sql = f"""
-        WITH candidates AS (
-            SELECT *
-            FROM listings
-            WHERE {where_clause}
-            LIMIT 300
-        ),
-        dense_search AS (
+        WITH dense_search AS (
             SELECT id, 
                    1.0 - (embedding <=> %(emb)s::vector) AS dense_sim,
                    ROW_NUMBER() OVER (ORDER BY embedding <=> %(emb)s::vector ASC) AS r_dense
-            FROM candidates
-            WHERE embedding IS NOT NULL
+            FROM listings
+            WHERE {where_clause} AND embedding IS NOT NULL
             ORDER BY embedding <=> %(emb)s::vector ASC
             LIMIT 100
         ),
@@ -91,9 +88,14 @@ class HybridRAGSearcher:
                            plainto_tsquery('english', %(q_text)s)
                        ) DESC
                    ) AS r_lexical
-            FROM candidates
-            WHERE to_tsvector('english', coalesce(title, '') || ' ' || coalesce(address, '') || ' ' || coalesce(city, '') || ' ' || coalesce(locality, '') || ' ' || coalesce(description, '')) @@ plainto_tsquery('english', %(q_text)s)
+            FROM listings
+            WHERE {where_clause} AND to_tsvector('english', coalesce(title, '') || ' ' || coalesce(address, '') || ' ' || coalesce(city, '') || ' ' || coalesce(locality, '') || ' ' || coalesce(description, '')) @@ plainto_tsquery('english', %(q_text)s)
             LIMIT 100
+        ),
+        candidate_ids AS (
+            SELECT id FROM dense_search
+            UNION
+            SELECT id FROM lexical_search
         ),
         rrf_combined AS (
             SELECT 
@@ -101,10 +103,9 @@ class HybridRAGSearcher:
                 COALESCE(d.dense_sim, 0.0) AS dense_sim,
                 COALESCE(l.lexical_score, 0.0) AS lexical_score,
                 (COALESCE(1.0 / (60 + d.r_dense), 0.0) + COALESCE(1.0 / (60 + l.r_lexical), 0.0)) AS rrf_score
-            FROM candidates c
+            FROM candidate_ids c
             LEFT JOIN dense_search d ON c.id = d.id
             LEFT JOIN lexical_search l ON c.id = l.id
-            WHERE d.id IS NOT NULL OR l.id IS NOT NULL
         )
         SELECT l.id, l.title, l.address, l.locality, l.city, l.price, l.bedrooms, l.bathrooms,
                l.area_sqft, l.furnishing_status, l.property_type, l.floor, l.tenant_preferred,
