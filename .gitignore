@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 db/data/house_rent_listings.csv
+models/*.onnx
+models/*.bin
+models/kokoro/
 # Distribution / packaging
 .Python
 build/

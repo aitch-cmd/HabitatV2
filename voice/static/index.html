@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HabitatOS — $0 Real-Time Voice Rental Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --card-bg: rgba(22, 29, 45, 0.75);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-cyan: #38bdf8;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-purple: #a855f7;
+      --accent-rose: #f43f5e;
+      --radius-lg: 16px;
+      --radius-md: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      background-image: 
+        radial-gradient(circle at 15% 20%, rgba(56, 189, 248, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 85% 80%, rgba(168, 85, 247, 0.08) 0%, transparent 40%);
+    }
+
+    header {
+      padding: 20px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--card-border);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-logo {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, #38bdf8, #6366f1);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 20px;
+      color: white;
+    }
+
+    .brand-title {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    .brand-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 20px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-cyan);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .stack-tags {
+      display: flex;
+      gap: 8px;
+    }
+
+    .tag {
+      font-size: 12px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    main {
+      flex: 1;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 28px 24px;
+      display: grid;
+      grid-template-columns: 380px 1fr;
+      gap: 28px;
+    }
+
+    @media (max-width: 960px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Left Sidebar: Voice Interaction & Visualizer */
+    .voice-control-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+      position: sticky;
+      top: 24px;
+      height: fit-content;
+    }
+
+    .orb-container {
+      position: relative;
+      width: 180px;
+      height: 180px;
+      margin: 20px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .orb-pulse {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(56, 189, 248, 0.25) 0%, transparent 70%);
+      animation: pulse-ring 3s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+      opacity: 0.5;
+    }
+
+    .orb {
+      width: 110px;
+      height: 110px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1e293b, #0f172a);
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 0 35px rgba(0, 0, 0, 0.6);
+      z-index: 2;
+    }
+
+    .orb svg {
+      width: 44px;
+      height: 44px;
+      fill: var(--text-muted);
+      transition: fill 0.3s;
+    }
+
+    /* Orb States */
+    .state-idle .orb {
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .state-listening .orb {
+      border-color: var(--accent-emerald);
+      box-shadow: 0 0 30px rgba(16, 185, 129, 0.4);
+      background: linear-gradient(135deg, #064e3b, #022c22);
+    }
+    .state-listening .orb svg { fill: var(--accent-emerald); }
+
+    .state-speaking .orb {
+      border-color: var(--accent-amber);
+      box-shadow: 0 0 40px rgba(245, 158, 11, 0.6);
+      background: linear-gradient(135deg, #78350f, #451a03);
+      transform: scale(1.06);
+    }
+    .state-speaking .orb svg { fill: var(--accent-amber); }
+
+    .state-processing .orb {
+      border-color: var(--accent-purple);
+      box-shadow: 0 0 35px rgba(168, 85, 247, 0.5);
+      background: linear-gradient(135deg, #581c87, #3b0764);
+      animation: rotate-orb 2s linear infinite;
+    }
+    .state-processing .orb svg { fill: var(--accent-purple); }
+
+    .state-responding .orb {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 45px rgba(56, 189, 248, 0.6);
+      background: linear-gradient(135deg, #0369a1, #082f49);
+      animation: breathe 1.8s ease-in-out infinite;
+    }
+    .state-responding .orb svg { fill: var(--accent-cyan); }
+
+    @keyframes pulse-ring {
+      0% { transform: scale(0.8); opacity: 0.8; }
+      50% { transform: scale(1.3); opacity: 0.2; }
+      100% { transform: scale(1.6); opacity: 0; }
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.08); }
+    }
+
+    @keyframes rotate-orb {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      margin-bottom: 12px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #64748b;
+    }
+
+    .state-listening .status-dot { background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald); }
+    .state-speaking .status-dot { background: var(--accent-amber); box-shadow: 0 0 8px var(--accent-amber); }
+    .state-processing .status-dot { background: var(--accent-purple); box-shadow: 0 0 8px var(--accent-purple); }
+    .state-responding .status-dot { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); }
+
+    canvas#waveform {
+      width: 100%;
+      height: 48px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.2);
+      margin: 12px 0;
+    }
+
+    .btn-voice {
+      width: 100%;
+      padding: 14px;
+      border-radius: var(--radius-md);
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+      background: linear-gradient(135deg, #0284c7, #2563eb);
+      color: white;
+      box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+    }
+
+    .btn-voice:hover {
+      opacity: 0.95;
+      transform: translateY(-1px);
+    }
+
+    .btn-voice.active {
+      background: linear-gradient(135deg, #e11d48, #be123c);
+      box-shadow: 0 4px 15px rgba(225, 29, 72, 0.3);
+    }
+
+    .barge-in-badge {
+      margin-top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--accent-emerald);
+      background: rgba(16, 185, 129, 0.1);
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(16, 185, 129, 0.2);
+    }
+
+    /* Right Panel: Conversation Stream & Property Cards */
+    .content-area {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .sample-prompts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .sample-prompts span {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .prompt-chip {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 6px 12px;
+      border-radius: 16px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .prompt-chip:hover {
+      background: rgba(56, 189, 248, 0.15);
+      border-color: rgba(56, 189, 248, 0.4);
+      color: var(--accent-cyan);
+    }
+
+    .chat-container {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      min-height: 280px;
+      max-height: 440px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .message {
+      display: flex;
+      flex-direction: column;
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: 14px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .message.user {
+      align-self: flex-end;
+      background: linear-gradient(135deg, #1e3a8a, #1e40af);
+      color: white;
+      border-bottom-right-radius: 2px;
+    }
+
+    .message.assistant {
+      align-self: flex-start;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--card-border);
+      color: #e2e8f0;
+      border-bottom-left-radius: 2px;
+    }
+
+    .message-meta {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    /* Property Cards Grid */
+    .listings-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+    }
+
+    .listings-header h3 {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .property-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius-md);
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: transform 0.2s, border-color 0.2s;
+    }
+
+    .property-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(56, 189, 248, 0.4);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .bhk-pill {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .rent-price {
+      font-size: 20px;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+
+    .property-title {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f8fafc;
+      line-height: 1.4;
+    }
+
+    .property-loc {
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .valuation-box {
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 4px;
+      border-left: 3px solid #10b981;
+    }
+
+    .valuation-fairness {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: var(--accent-emerald);
+      letter-spacing: 0.5px;
+    }
+
+    .valuation-fairness.fair { color: var(--accent-cyan); }
+    .valuation-fairness.above { color: var(--accent-rose); }
+
+    .valuation-details {
+      font-size: 11px;
+      color: #cbd5e1;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">H</div>
+      <div>
+        <div class="brand-title">HabitatOS Voice</div>
+        <div style="font-size: 11px; color: var(--text-muted);">Delhi NCR Rental Advisor</div>
+      </div>
+      <div class="brand-badge">$0 Local Stack</div>
+    </div>
+    <div class="stack-tags">
+      <div class="tag">Silero VAD (ONNX)</div>
+      <div class="tag">Faster-Whisper</div>
+      <div class="tag">Kokoro-82M TTS</div>
+      <div class="tag">pgvector RRF</div>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Voice Orb & Barge-in Monitor -->
+    <div class="voice-control-card">
+      <div id="statusContainer" class="state-idle">
+        <div class="status-pill">
+          <div class="status-dot"></div>
+          <span id="statusLabel">Disconnected</span>
+        </div>
+
+        <div class="orb-container">
+          <div class="orb-pulse"></div>
+          <div class="orb">
+            <svg viewBox="0 0 24 24">
+              <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+              <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+            </svg>
+          </div>
+        </div>
+      </div>
+
+      <canvas id="waveform"></canvas>
+
+      <button id="toggleBtn" class="btn-voice">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+        <span id="btnLabel">Start Voice Session</span>
+      </button>
+
+      <div class="barge-in-badge">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42C17.99 7.86 19 9.81 19 12c0 3.87-3.13 7-7 7s-7-3.13-7-7c0-2.19 1.01-4.14 2.58-5.42L6.17 5.17C4.23 6.82 3 9.26 3 12c0 4.97 4.03 9 9 9s9-4.03 9-9c0-2.74-1.23-5.18-3.17-6.83z"/>
+        </svg>
+        Instant Barge-In Active (Speak to Interrupt)
+      </div>
+    </div>
+
+    <!-- Right Live Conversation & Cards Area -->
+    <div class="content-area">
+      <div class="sample-prompts">
+        <span>Try speaking:</span>
+        <div class="prompt-chip" onclick="speakHint('Show me 2 BHK flats in South Delhi around 25k')">"2BHK in South Delhi around 25k"</div>
+        <div class="prompt-chip" onclick="speakHint('Find bachelor friendly flats near Hauz Khas under 20k')">"Flats near Hauz Khas under 20k"</div>
+        <div class="prompt-chip" onclick="speakHint('Look for direct from owner 3 BHK in Noida')">"Owner 3BHK in Noida"</div>
+      </div>
+
+      <div class="chat-container" id="chatContainer">
+        <div class="message assistant">
+          <div class="message-meta">HabitatOS Voice Advisor</div>
+          <div>Click <strong>Start Voice Session</strong> and speak naturally. Say something like: <em>"Find me a sunlit 2BHK in Saket under 25,000"</em>. You can interrupt the agent at any time by speaking.</div>
+        </div>
+      </div>
+
+      <div class="listings-section" id="listingsSection" style="display: none;">
+        <div class="listings-header">
+          <h3>Top Retrieved Properties & Valuation Analysis</h3>
+          <span style="font-size: 12px; color: var(--text-muted);">Ranked by LambdaMART + pgvector</span>
+        </div>
+        <div class="cards-grid" id="cardsGrid"></div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    let isConnected = false;
+    let ws = null;
+    let audioContext = null;
+    let micStream = null;
+    let scriptProcessor = null;
+    let analyserNode = null;
+    let canvasContext = null;
+    let activeAudioSources = [];
+    let scheduledAudioTime = 0;
+
+    const toggleBtn = document.getElementById("toggleBtn");
+    const btnLabel = document.getElementById("btnLabel");
+    const statusContainer = document.getElementById("statusContainer");
+    const statusLabel = document.getElementById("statusLabel");
+    const chatContainer = document.getElementById("chatContainer");
+    const waveformCanvas = document.getElementById("waveform");
+    const listingsSection = document.getElementById("listingsSection");
+    const cardsGrid = document.getElementById("cardsGrid");
+
+    canvasContext = waveformCanvas.getContext("2d");
+
+    function setSessionState(state) {
+      statusContainer.className = "state-" + state;
+      const labels = {
+        idle: "Disconnected",
+        listening: "Listening (Silero VAD)",
+        speaking: "User Speaking...",
+        processing: "Retrieval & Valuation...",
+        responding: "HabitatOS Speaking..."
+      };
+      statusLabel.textContent = labels[state] || state;
+    }
+
+    async function toggleVoiceSession() {
+      if (!isConnected) {
+        await startSession();
+      } else {
+        stopSession();
+      }
+    }
+
+    toggleBtn.addEventListener("click", toggleVoiceSession);
+
+    async function startSession() {
+      try {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioContext = new AudioContextClass();
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+
+        // Get microphone stream with echo cancellation
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
+
+        // Connect WebSocket
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//${window.location.host}/ws/voice`;
+        ws = new WebSocket(wsUrl);
+        ws.binaryType = "arraybuffer";
+
+        ws.onopen = () => {
+          isConnected = true;
+          toggleBtn.classList.add("active");
+          btnLabel.textContent = "End Voice Session";
+          setSessionState("listening");
+          setupAudioInput(micStream);
+          setupWaveform(micStream);
+        };
+
+        ws.onmessage = async (event) => {
+          if (typeof event.data === "string") {
+            const data = JSON.parse(event.data);
+            handleControlMessage(data);
+          } else {
+            // Binary audio chunk (16-bit 24kHz PCM from Kokoro TTS)
+            playPcmAudio(event.data);
+          }
+        };
+
+        ws.onclose = () => {
+          stopSession();
+        };
+
+        ws.onerror = (err) => {
+          console.error("WebSocket error:", err);
+          stopSession();
+        };
+
+      } catch (err) {
+        alert("Microphone access error: " + err.message);
+        stopSession();
+      }
+    }
+
+    function stopSession() {
+      isConnected = false;
+      toggleBtn.classList.remove("active");
+      btnLabel.textContent = "Start Voice Session";
+      setSessionState("idle");
+
+      clearAudioPlayback();
+
+      if (scriptProcessor) {
+        scriptProcessor.disconnect();
+        scriptProcessor = null;
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      ws = null;
+    }
+
+    function setupAudioInput(stream) {
+      const source = audioContext.createMediaStreamSource(stream);
+      // Capture PCM audio buffer via ScriptProcessor
+      scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      scriptProcessor.onaudioprocess = (e) => {
+        if (!isConnected || !ws || ws.readyState !== WebSocket.OPEN) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+        // Downsample input from browser sampleRate to 16,000 Hz
+        const downsampled = downsampleBuffer(inputData, audioContext.sampleRate, 16000);
+        const pcm16 = floatTo16BitPCM(downsampled);
+
+        // Send 16kHz PCM chunk
+        ws.send(pcm16.buffer);
+      };
+
+      source.connect(scriptProcessor);
+      scriptProcessor.connect(audioContext.destination);
+    }
+
+    function downsampleBuffer(buffer, sampleRate, outSampleRate) {
+      if (outSampleRate === sampleRate) return buffer;
+      const ratio = sampleRate / outSampleRate;
+      const newLength = Math.round(buffer.length / ratio);
+      const result = new Float32Array(newLength);
+      let offsetResult = 0;
+      let offsetBuffer = 0;
+
+      while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+          accum += buffer[i];
+          count++;
+        }
+        result[offsetResult] = count > 0 ? accum / count : 0;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+      }
+      return result;
+    }
+
+    function floatTo16BitPCM(floatArray) {
+      const pcm16 = new Int16Array(floatArray.length);
+      for (let i = 0; i < floatArray.length; i++) {
+        const s = Math.max(-1, Math.min(1, floatArray[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return pcm16;
+    }
+
+    function handleControlMessage(data) {
+      switch (data.type) {
+        case "vad_state":
+          setSessionState(data.state);
+          break;
+
+        case "clear_audio":
+          // INSTANT BARGE-IN: Stop all bot audio immediately!
+          clearAudioPlayback();
+          setSessionState("speaking");
+          break;
+
+        case "transcript":
+          appendMessage(data.role, data.text);
+          break;
+
+        case "listings":
+          renderListings(data.data);
+          break;
+
+        case "audio_chunk":
+          // Sent before binary chunk
+          break;
+      }
+    }
+
+    function clearAudioPlayback() {
+      // Immediately stop all active audio nodes on user barge-in
+      for (const src of activeAudioSources) {
+        try {
+          src.stop();
+          src.disconnect();
+        } catch (e) {}
+      }
+      activeAudioSources = [];
+      scheduledAudioTime = 0;
+    }
+
+    function playPcmAudio(arrayBuffer, sampleRate = 24000) {
+      if (!audioContext) return;
+
+      const int16Array = new Int16Array(arrayBuffer);
+      const float32Array = new Float32Array(int16Array.length);
+      for (let i = 0; i < int16Array.length; i++) {
+        float32Array[i] = int16Array[i] / 32768.0;
+      }
+
+      const audioBuffer = audioContext.createBuffer(1, float32Array.length, sampleRate);
+      audioBuffer.getChannelData(0).set(float32Array);
+
+      const source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(audioContext.destination);
+
+      const now = audioContext.currentTime;
+      if (scheduledAudioTime < now) {
+        scheduledAudioTime = now;
+      }
+
+      source.start(scheduledAudioTime);
+      scheduledAudioTime += audioBuffer.duration;
+
+      activeAudioSources.push(source);
+      source.onended = () => {
+        const idx = activeAudioSources.indexOf(source);
+        if (idx !== -1) activeAudioSources.splice(idx, 1);
+      };
+    }
+
+    function appendMessage(role, text) {
+      const div = document.createElement("div");
+      div.className = "message " + role;
+      const meta = document.createElement("div");
+      meta.className = "message-meta";
+      meta.textContent = role === "user" ? "You" : "HabitatOS Voice Advisor";
+      const body = document.createElement("div");
+      body.innerHTML = text.replace(/\n/g, "<br>");
+      div.appendChild(meta);
+      div.appendChild(body);
+      chatContainer.appendChild(div);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function renderListings(listings) {
+      if (!listings || listings.length === 0) {
+        listingsSection.style.display = "none";
+        return;
+      }
+
+      listingsSection.style.display = "block";
+      cardsGrid.innerHTML = "";
+
+      listings.forEach((item, index) => {
+        const val = item.rent_valuation || {};
+        const fairness = val.valuation_verdict || "Fair Market";
+        let fairnessClass = "fair";
+        if (fairness.toLowerCase().includes("great") || fairness.toLowerCase().includes("good") || fairness.toLowerCase().includes("underpriced")) {
+          fairnessClass = "";
+        } else if (fairness.toLowerCase().includes("above") || fairness.toLowerCase().includes("overpriced")) {
+          fairnessClass = "above";
+        }
+
+        const card = document.createElement("div");
+        card.className = "property-card";
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="bhk-pill">${item.bedrooms || 2} BHK</span>
+            <div class="rent-price">₹${(item.price || 0).toLocaleString()} <span style="font-size:12px;color:#94a3b8;font-weight:400;">/mo</span></div>
+          </div>
+          <div class="property-title">${item.title || (item.bedrooms + ' BHK in ' + item.locality)}</div>
+          <div class="property-loc">📍 ${item.locality || ''}, ${item.city || 'Delhi'}</div>
+          <div class="valuation-box">
+            <div class="valuation-fairness ${fairnessClass}">● ${fairness}</div>
+            <div class="valuation-details">Fair P50 Median: ₹${(val.fair_market_rent_p50 || item.price).toLocaleString()} | Savings: ₹${(val.savings_or_premium || 0).toLocaleString()}</div>
+          </div>
+        `;
+        cardsGrid.appendChild(card);
+      });
+    }
+
+    function setupWaveform(stream) {
+      analyserNode = audioContext.createAnalyser();
+      analyserNode.fftSize = 128;
+      const source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyserNode);
+
+      const bufferLength = analyserNode.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      function draw() {
+        requestAnimationFrame(draw);
+        if (!isConnected) {
+          canvasContext.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+          return;
+        }
+
+        analyserNode.getByteFrequencyData(dataArray);
+        canvasContext.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+
+        const barWidth = (waveformCanvas.width / bufferLength) * 2;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          const barHeight = (dataArray[i] / 255) * waveformCanvas.height;
+          canvasContext.fillStyle = "#38bdf8";
+          canvasContext.fillRect(x, waveformCanvas.height - barHeight, barWidth - 1, barHeight);
+          x += barWidth;
+        }
+      }
+      draw();
+    }
+
+    function speakHint(text) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        appendMessage("user", text);
+        setSessionState("processing");
+        // Simulate speech completion for testing hint chips
+        fetch("/api/health").then(() => {
+          ws.send(JSON.stringify({ type: "prompt", text: text }));
+        });
+      }
+    }
+  </script>
+</body>
+</html>

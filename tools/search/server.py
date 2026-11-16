@@ -92,6 +92,7 @@ class ProductionPropertyPipeline:
             candidates=candidates,
             budget=intent["price"],
             target_bhk=intent["target_bhk"],
+            target_locality=intent.get("location"),
             top_k=top_k,
         )
         logger.info(f"Stage 3 (LambdaMART) ranked top {len(ranked)} listings.")
@@ -180,6 +181,22 @@ def search_properties(user_query: str, max_results: int = 5) -> str:
             "count": 0,
             "results": [],
         }, indent=2)
+
+
+@search_server.tool()
+def evaluate_rent_deal(listing_id: int) -> str:
+    """
+    FastMCP Valuation & Deal Assessment Tool:
+    Evaluates fair rent range [P10 bargain, P50 fair median, P90 premium] and returns
+    actionable SHAP drivers explaining why the property is above, below, or at market price.
+
+    Args:
+        listing_id: Database ID of listing to evaluate
+
+    Returns:
+        JSON string with fair market range [P10, P50, P90], percentage delta, verdict, and SHAP drivers.
+    """
+    return evaluate_listing_valuation(listing_id)
 
 
 @search_server.tool()
