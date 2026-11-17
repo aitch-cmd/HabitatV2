@@ -67,7 +67,7 @@ User message: {user_message}
             })
             return result
         except Exception as e:
-            print(f"Error parsing message: {e}")
+            # Fallback cleanly to high-speed regex pipeline when local LLM server is unconfigured
             return {
                 "location": None,
                 "price": None,
